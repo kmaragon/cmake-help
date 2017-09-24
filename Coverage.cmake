@@ -29,13 +29,12 @@ function(add_coverage_run _target_name _for_target)
 
     # just get all the project sources for the extract
     file(GLOB_RECURSE _all_sources "${CMAKE_SOURCE_DIR}/*")
-    set(_object_dir "${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/${_for_target}.dir")
     add_custom_target("${_target_name}"
-            COMMAND ${LCOV_EXE} --zerocounters --directory "${_object_dir}"
-            COMMAND ${LCOV_EXE} --capture --initial --directory "${_object_dir}" --output-file "${_target_name}_coverage.run.info.all"
+            COMMAND ${LCOV_EXE} --zerocounters --directory "${CMAKE_BINARY_DIR}"
+            COMMAND ${LCOV_EXE} --capture --initial --directory "${CMAKE_BINARY_DIR}" --output-file "${_target_name}_coverage.run.info.all"
             COMMAND "${TARGET_OUTPUT_DIR}/${_for_target}${SUFFIX}" ${COVERAGE_ARGS}
-            COMMAND ${LCOV_EXE} --capture --directory "${_object_dir}" --output-file "${_target_name}_coverage.run.info.all"
-            COMMAND ${LCOV_EXE} --directory "${_object_dir}" --output-file "${_target_name}_coverage.run.info" --extract "${_target_name}_coverage.run.info.all" ${_all_sources}
+            COMMAND ${LCOV_EXE} --capture --directory "${CMAKE_BINARY_DIR}" --output-file "${_target_name}_coverage.run.info.all"
+            COMMAND ${LCOV_EXE} --directory "${CMAKE_BINARY_DIR}" --output-file "${_target_name}_coverage.run.info" --extract "${_target_name}_coverage.run.info.all" ${_all_sources}
             COMMAND ${GENHTML_EXE} -o "${CMAKE_CURRENT_BINARY_DIR}/${_target_name}" "${_target_name}_coverage.run.info"
             COMMAND ${CMAKE_COMMAND} -E remove "${_target_name}_coverage.run.info"
             COMMAND ${XDG_OPEN_EXE} "${CMAKE_CURRENT_BINARY_DIR}/${_target_name}/index.html"
