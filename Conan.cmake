@@ -23,7 +23,7 @@ function(_conan_install conanfile)
         set(conanfile "${CMAKE_CURRENT_SOURCE_DIR}/${conanfile}")
     endif()
 
-    set(conan_args install -g cmake -f "${conanfile}" ${CONAN_BUILD_POLICY})
+    set(conan_args install -g cmake "${conanfile}" ${CONAN_BUILD_POLICY})
 
     string (REPLACE ";" " " _conan_args "${conan_args}")
     set(conan_cmake_file "${CMAKE_CURRENT_BINARY_DIR}/conanbuildinfo.cmake")
