@@ -1,61 +1,134 @@
+
+function(_get_conan_compiler_version_and_libcxx _compiler _version _libcxx)
+    if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+        if (CMAKE_HOST_APPLE)
+            set("${_compiler}" "apple-clang" PARENT_SCOPE)
+        else ()
+            set("${_compiler}" "clang" PARENT_SCOPE)
+        endif ()
+        set(${_libcxx} "libstdc++11" PARENT_SCOPE)
+        string(REGEX MATCH "^([0-9]+\\.[0-9]+)" version "${CMAKE_CXX_COMPILER_VERSION}")
+        if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "8.0")
+            string(REGEX REPLACE "^([0-9]+)\\.[0-9]+.*" "\\1" version "${CMAKE_CXX_COMPILER_VERSION}")
+            set(${_version} "${version}" PARENT_SCOPE)
+        else ()
+            set(${_version} "${version}" PARENT_SCOPE)
+        endif ()
+    elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+        set(${_compiler} "gcc" PARENT_SCOPE)
+        if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "6.0")
+            if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.0")
+                string(REGEX MATCH "^([0-9]+\\.[0-9]+)" version "${CMAKE_CXX_COMPILER_VERSION}")
+                set(${_version} "${version}" PARENT_SCOPE)
+            else ()
+                string(REGEX MATCH "^([0-9]+)" version "${CMAKE_CXX_COMPILER_VERSION}")
+                set(${_version} "${version}" PARENT_SCOPE)
+            endif ()
+            set(${_libcxx} "libstdc++" PARENT_SCOPE)
+        else ()
+            set(${_libcxx} "libstdc++11" PARENT_SCOPE)
+            string(REGEX MATCH "^([0-9]+)" version "${CMAKE_CXX_COMPILER_VERSION}")
+            set(${_version} "${version}" PARENT_SCOPE)
+        endif ()
+    elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+        set(${_libcxx} "libstdc++11" PARENT_SCOPE) # ¯\_(ツ)_/¯
+        set(${_compiler} "Visual Studio" PARENT_SCOPE)
+        string(REGEX MATCH "^([0-9]+)" version "${CMAKE_CXX_COMPILER_VERSION}")
+        set(${_version} "${version}" PARENT_SCOPE)
+    else ()
+        message(FATAL "Unsupported compiler")
+    endif ()
+endfunction()
+
+# implementation of conan_install
 function(_conan_install conanfile)
-    # Calls "conan install"
-    # Argument BUILD is equivalant to --build={missing, PkgName,...}
-    # Argument CONAN_COMMAND, to specify the conan path, e.g. in case of running from source
-    # cmake does not identify conan as command, even if it is +x and it is in the path
     set(options "")
-    set(oneValueArgs BUILD CONANFILE)
-    set(multiValueArgs REQUIRES OPTIONS IMPORTS CONAN_COMMAND)
-    cmake_parse_arguments(ARGUMENTS "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
+    set(oneValueArgs BUILD BUILD_TYPE CONANFILE)
+    set(multiValueArgs CONAN_COMMAND OPTIONS)
+    cmake_parse_arguments(ARGUMENTS "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-    if(ARGUMENTS_BUILD)
+    if (ARGUMENTS_BUILD_TYPE)
+        set(build_type "${ARGUMENTS_BUILD_TYPE}")
+    else ()
+        set(build_type "${CMAKE_BUILD_TYPE}")
+    endif ()
+
+    if (build_type MATCHES [Cc]overage)
+        set(build_type "Debug")
+    elseif (build_type MATCHES [Rr]el[Ww]ith[Dd]eb[Ii]nfo)
+        set(build_type "Release")
+    endif ()
+
+    if (ARGUMENTS_OPTIONS)
+        set(CONAN_BUILD_OPTIONS "")
+        foreach (opt ${ARGUMENTS_OPTIONS})
+            list(APPEND CONAN_BUILD_OPTIONS "-o")
+            list(APPEND CONAN_BUILD_OPTIONS "${opt}")
+        endforeach ()
+    else ()
+        set(CONAN_BUILD_OPTIONS)
+    endif ()
+
+    if (ARGUMENTS_BUILD)
         set(CONAN_BUILD_POLICY "--build=${ARGUMENTS_BUILD}")
-    else()
+    else ()
         set(CONAN_BUILD_POLICY "--build=outdated")
-    endif()
-    if(ARGUMENTS_CONAN_COMMAND)
+    endif ()
+    if (ARGUMENTS_CONAN_COMMAND)
         set(conan_command ${ARGUMENTS_CONAN_COMMAND})
-    else()
+    else ()
         set(conan_command conan)
-    endif()
+    endif ()
 
-    if(NOT IS_ABSOLUTE "${conanfile}")
+    if (NOT IS_ABSOLUTE "${conanfile}")
         set(conanfile "${CMAKE_CURRENT_SOURCE_DIR}/${conanfile}")
-    endif()
+    endif ()
 
-    set(conan_args install -g cmake "${conanfile}" ${CONAN_BUILD_POLICY})
+    _get_conan_compiler_version_and_libcxx(conan_compiler_name conan_compiler_version conan_lib_cxx)
+    set(conan_args install -u -g cmake -s "compiler=${conan_compiler_name}" -s "compiler.version=${conan_compiler_version}" -s "compiler.libcxx=${conan_lib_cxx}" -s "build_type=${build_type}" ${CONAN_BUILD_OPTIONS} -u ${CONAN_BUILD_POLICY} "${conanfile}")
 
-    string (REPLACE ";" " " _conan_args "${conan_args}")
+    string(REPLACE ";" " " _conan_args "${conan_args}")
     set(conan_cmake_file "${CMAKE_CURRENT_BINARY_DIR}/conanbuildinfo.cmake")
 
-    if("${conanfile}" IS_NEWER_THAN "${conan_cmake_file}")
+    set(conanfile_r "${conanfile}")
+    if (IS_DIRECTORY "${conanfile_r}")
+        if (EXISTS "${conanfile_r}/conanfile.py")
+            get_filename_component(conanfile_r "${conanfile_r}/conanfile.py" ABSOLUTE)
+        elseif (EXISTS "${conanfile_r}/conanfile.txt")
+            get_filename_component(conanfile_r "${conanfile_r}/conanfile.txt" ABSOLUTE)
+        endif ()
+    endif ()
+
+    if ("${conanfile_r}" IS_NEWER_THAN "${conan_cmake_file}")
         message(STATUS "Conan executing: ${conan_command} ${_conan_args}")
 
+        get_filename_component(cmake_dir "${CMAKE_COMMAND}" DIRECTORY)
+        set(ENV{PATH} "$ENV{PATH}:${cmake_dir}")
+        set(ENV{CC} "${CMAKE_C_COMPILER}")
+        set(ENV{CXX} "${CMAKE_CXX_COMPILER}")
         execute_process(COMMAND ${conan_command} ${conan_args}
-            RESULT_VARIABLE return_code
-            WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+                RESULT_VARIABLE return_code
+                )
 
-        if(NOT "${return_code}" STREQUAL "0")
+        if (NOT "${return_code}" STREQUAL "0")
+            _conan_print_cognitiv_vpn_message()
             message(FATAL_ERROR "Conan install failed='${return_code}'")
-        endif()
-    endif()
+        endif ()
 
-    configure_file("${conanfile}" "${CMAKE_CURRENT_BINARY_DIR}/_conan.txt")
-    add_custom_command(
-            OUTPUT "${conan_cmake_file}"
-            COMMAND "${conan_command}" ${_conan_args}
-            DEPENDS "${conanfile}"
-            WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-            COMMENT "Conan executing: ${conan_command} ${_conan_args}"
-    )
+        execute_process(COMMAND "${CMAKE_COMMAND}" -E "touch" "${conan_cmake_file}")
+    endif ()
 
-    string(RANDOM LENGTH 12 target_name)
-    add_custom_target("conan${target_name}" ALL DEPENDS "${conan_cmake_file}")
-
+    configure_file("${conanfile_r}" "${CMAKE_CURRENT_BINARY_DIR}/_conan.txt")
 endfunction()
 
 macro(conan_include conanfile)
     _conan_install("${conanfile}" ${ARGN})
+
+    file(READ "${CMAKE_CURRENT_BINARY_DIR}/conanbuildinfo.cmake" CONAN_CMAKE_OUTPUT)
+    string(REPLACE " GLOBAL)" ")" CONAN_CMAKE_CONTENT "${CONAN_CMAKE_OUTPUT}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/conanbuildinfo.cmake" "${CONAN_CMAKE_CONTENT}")
+
     include("${CMAKE_CURRENT_BINARY_DIR}/conanbuildinfo.cmake")
-    conan_basic_setup(TARGETS)
+    conan_basic_setup(TARGETS NO_OUTPUT_DIRS)
 endmacro()
